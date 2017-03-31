@@ -29,7 +29,7 @@
 
 #include "lwan-private.h"
 
-struct death_queue_t {
+struct death_queue {
     const struct lwan *lwan;
     struct lwan_connection *conns;
     struct lwan_connection head;
@@ -42,19 +42,19 @@ static const uint32_t events_by_write_flag[] = {
     EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLET
 };
 
-static inline int death_queue_node_to_idx(struct death_queue_t *dq,
+static inline int death_queue_node_to_idx(struct death_queue *dq,
     struct lwan_connection *conn)
 {
     return (conn == &dq->head) ? -1 : (int)(ptrdiff_t)(conn - dq->conns);
 }
 
-static inline struct lwan_connection *death_queue_idx_to_node(struct death_queue_t *dq,
+static inline struct lwan_connection *death_queue_idx_to_node(struct death_queue *dq,
     int idx)
 {
     return (idx < 0) ? &dq->head : &dq->conns[idx];
 }
 
-static void death_queue_insert(struct death_queue_t *dq,
+static void death_queue_insert(struct death_queue *dq,
     struct lwan_connection *new_node)
 {
     new_node->next = -1;
@@ -63,7 +63,7 @@ static void death_queue_insert(struct death_queue_t *dq,
     dq->head.prev = prev->next = death_queue_node_to_idx(dq, new_node);
 }
 
-static void death_queue_remove(struct death_queue_t *dq,
+static void death_queue_remove(struct death_queue *dq,
     struct lwan_connection *node)
 {
     struct lwan_connection *prev = death_queue_idx_to_node(dq, node->prev);
@@ -76,12 +76,12 @@ static void death_queue_remove(struct death_queue_t *dq,
     node->next = node->prev = -1;
 }
 
-static bool death_queue_empty(struct death_queue_t *dq)
+static bool death_queue_empty(struct death_queue *dq)
 {
     return dq->head.next < 0;
 }
 
-static void death_queue_move_to_last(struct death_queue_t *dq,
+static void death_queue_move_to_last(struct death_queue *dq,
     struct lwan_connection *conn)
 {
     /*
@@ -101,7 +101,7 @@ static void death_queue_move_to_last(struct death_queue_t *dq,
 }
 
 static void
-death_queue_init(struct death_queue_t *dq, const struct lwan *lwan)
+death_queue_init(struct death_queue *dq, const struct lwan *lwan)
 {
     dq->lwan = lwan;
     dq->conns = lwan->conns;
@@ -111,13 +111,13 @@ death_queue_init(struct death_queue_t *dq, const struct lwan *lwan)
 }
 
 static ALWAYS_INLINE int
-death_queue_epoll_timeout(struct death_queue_t *dq)
+death_queue_epoll_timeout(struct death_queue *dq)
 {
     return death_queue_empty(dq) ? -1 : 1000;
 }
 
 static ALWAYS_INLINE void
-destroy_coro(struct death_queue_t *dq, struct lwan_connection *conn)
+destroy_coro(struct death_queue *dq, struct lwan_connection *conn)
 {
     death_queue_remove(dq, conn);
     if (LIKELY(conn->coro)) {
@@ -196,7 +196,7 @@ process_request_coro(struct coro *coro, void *data)
 }
 
 static ALWAYS_INLINE void
-resume_coro_if_needed(struct death_queue_t *dq, struct lwan_connection *conn,
+resume_coro_if_needed(struct death_queue *dq, struct lwan_connection *conn,
     int epoll_fd)
 {
     assert(conn->coro);
@@ -240,7 +240,7 @@ resume_coro_if_needed(struct death_queue_t *dq, struct lwan_connection *conn,
 }
 
 static void
-death_queue_kill_waiting(struct death_queue_t *dq)
+death_queue_kill_waiting(struct death_queue *dq)
 {
     dq->time++;
 
@@ -258,7 +258,7 @@ death_queue_kill_waiting(struct death_queue_t *dq)
 }
 
 static void
-death_queue_kill_all(struct death_queue_t *dq)
+death_queue_kill_all(struct death_queue *dq)
 {
     while (!death_queue_empty(dq)) {
         struct lwan_connection *conn = death_queue_idx_to_node(dq, dq->head.next);
@@ -281,56 +281,57 @@ update_date_cache(struct lwan_thread *thread)
 
 static ALWAYS_INLINE void
 spawn_coro(struct lwan_connection *conn,
-            struct coro_switcher *switcher, struct death_queue_t *dq)
+            struct coro_switcher *switcher, struct death_queue *dq)
 {
     assert(!conn->coro);
     assert(!(conn->flags & CONN_IS_ALIVE));
     assert(!(conn->flags & CONN_SHOULD_RESUME_CORO));
 
     conn->coro = coro_new(switcher, process_request_coro, conn);
+    if (UNLIKELY(!conn->coro)) {
+        lwan_status_error("Could not create coroutine");
+        return;
+    }
+
     conn->flags = CONN_IS_ALIVE | CONN_SHOULD_RESUME_CORO;
+    conn->time_to_die = dq->time + dq->keep_alive_timeout;
 
     death_queue_insert(dq, conn);
 }
 
-static int
-grab_command(int pipe_fd)
+static void
+accept_nudge(int pipe_fd, struct spsc_queue *pending_fds,
+    struct lwan_connection *conns, struct death_queue *dq,
+    struct coro_switcher *switcher, int epoll_fd)
 {
-    int cmd;
-    ssize_t sz = read(pipe_fd, &cmd, sizeof(cmd));
+    void *new_fd;
+    bool cmd;
 
-    if (UNLIKELY(sz < 0))
-        return -1;
-    if (UNLIKELY((size_t)sz < sizeof(cmd)))
-        return -2;
-    return cmd;
-}
+    if (read(pipe_fd, &cmd, sizeof(cmd)) != sizeof(cmd))
+        return;
 
-static struct lwan_connection *
-watch_client(int epoll_fd, int fd, struct lwan_connection *conns)
-{
-    struct epoll_event event = {
-        .events = events_by_write_flag[1],
-        .data.ptr = &conns[fd]
-    };
-    if (UNLIKELY(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event) < 0))
-        return NULL;
+    if (!cmd)
+        return;
 
-    return &conns[fd];
+    while ((new_fd = spsc_queue_pop(pending_fds))) {
+        struct lwan_connection *conn = &conns[(int)(intptr_t)new_fd];
+
+        spawn_coro(conn, switcher, dq);
+        resume_coro_if_needed(dq, conn, epoll_fd);
+    }
 }
 
 static void *
 thread_io_loop(void *data)
 {
     struct lwan_thread *t = data;
-    const int epoll_fd = t->epoll_fd;
+    int epoll_fd = t->epoll_fd;
     const int read_pipe_fd = t->pipe_fd[0];
     const int max_events = min((int)t->lwan->thread.max_fd, 1024);
     struct lwan *lwan = t->lwan;
-    struct lwan_connection *conns = lwan->conns;
     struct epoll_event *events;
     struct coro_switcher switcher;
-    struct death_queue_t dq;
+    struct death_queue dq;
     int n_fds;
 
     lwan_status_debug("Starting IO loop on thread #%d",
@@ -348,44 +349,34 @@ thread_io_loop(void *data)
         switch (n_fds = epoll_wait(epoll_fd, events, max_events,
                                    death_queue_epoll_timeout(&dq))) {
         case -1:
-            switch (errno) {
-            case EBADF:
-            case EINVAL:
+            if (errno == EBADF || errno == EINVAL)
                 goto epoll_fd_closed;
-            }
             continue;
+
         case 0: /* timeout: shutdown waiting sockets */
             death_queue_kill_waiting(&dq);
             break;
+
         default: /* activity in some of this poller's file descriptor */
             update_date_cache(t);
 
             for (struct epoll_event *ep_event = events; n_fds--; ep_event++) {
                 struct lwan_connection *conn;
 
-                if (!ep_event->data.ptr) {
-                    int cmd = grab_command(read_pipe_fd);
-                    if (LIKELY(cmd >= 0)) {
-                        conn = watch_client(epoll_fd, cmd, conns);
-                        spawn_coro(conn, &switcher, &dq);
-                    } else if (UNLIKELY(cmd == -1)) {
-                        continue;
-                    } else if (UNLIKELY(cmd == -2)) {
-                        goto epoll_fd_closed;
-                    } else {
-                        lwan_status_debug("Unknown command received, ignored");
-                        continue;
-                    }
-                } else {
-                    conn = ep_event->data.ptr;
-                    if (UNLIKELY(ep_event->events & (EPOLLRDHUP | EPOLLHUP))) {
-                        destroy_coro(&dq, conn);
-                        continue;
-                    }
-
-                    resume_coro_if_needed(&dq, conn, epoll_fd);
+                if (UNLIKELY(!ep_event->data.ptr)) {
+                    accept_nudge(read_pipe_fd, &t->pending_fds, lwan->conns,
+                        &dq, &switcher, epoll_fd);
+                    continue;
                 }
 
+                conn = ep_event->data.ptr;
+
+                if (UNLIKELY(ep_event->events & (EPOLLRDHUP | EPOLLHUP))) {
+                    destroy_coro(&dq, conn);
+                    continue;
+                }
+
+                resume_coro_if_needed(&dq, conn, epoll_fd);
                 death_queue_move_to_last(&dq, conn);
             }
         }
@@ -432,15 +423,32 @@ create_thread(struct lwan *l, struct lwan_thread *thread)
 
     if (pthread_attr_destroy(&attr))
         lwan_status_critical_perror("pthread_attr_destroy");
+
+    if (spsc_queue_init(&thread->pending_fds, thread->lwan->thread.max_fd) < 0)
+        lwan_status_critical("Could not initialize pending fd queue");
 }
 
 void
 lwan_thread_add_client(struct lwan_thread *t, int fd)
 {
-    t->lwan->conns[fd].flags = 0;
-    t->lwan->conns[fd].thread = t;
+    struct epoll_event event = {
+        .events = events_by_write_flag[1],
+        .data.ptr = &t->lwan->conns[fd]
+    };
 
-    if (UNLIKELY(write(t->pipe_fd[1], &fd, sizeof(int)) < 0))
+    t->lwan->conns[fd] = (struct lwan_connection) { .thread = t };
+
+    if (UNLIKELY(epoll_ctl(t->epoll_fd, EPOLL_CTL_ADD, fd, &event) < 0))
+        lwan_status_perror("epoll_ctl");
+
+    if (!spsc_queue_push(&t->pending_fds, (void *)(intptr_t)fd))
+        lwan_status_error("spsc_queue_push");
+}
+
+void
+lwan_thread_nudge(struct lwan_thread *t, bool created)
+{
+    if (UNLIKELY(write(t->pipe_fd[1], &created, sizeof(created)) < 0))
         lwan_status_perror("write");
 }
 
@@ -471,8 +479,6 @@ lwan_thread_shutdown(struct lwan *l)
 
     for (int i = l->thread.count - 1; i >= 0; i--) {
         struct lwan_thread *t = &l->thread.threads[i];
-        char less_than_int = 0;
-        ssize_t r;
 
         lwan_status_debug("Closing epoll for thread %d (fd=%d)", i,
             t->epoll_fd);
@@ -481,18 +487,9 @@ lwan_thread_shutdown(struct lwan *l)
          * thread to gracefully finish.  */
         close(t->epoll_fd);
 
-        while (true) {
-            r = write(t->pipe_fd[1], &less_than_int, sizeof(less_than_int));
+        lwan_thread_nudge(t, false);
 
-            if (r >= 0)
-                break;
-
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
-                continue;
-
-            lwan_status_error("Could not write to I/O thread (%d) pipe to shutdown", i);
-            break;
-        }
+        spsc_queue_free(&t->pending_fds);
     }
 
     pthread_barrier_wait(&l->thread.barrier);
