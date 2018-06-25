@@ -81,28 +81,19 @@ lwan_determine_mime_type_for_file_name(const char *file_name)
     if (UNLIKELY(!last_dot))
         goto fallback;
 
-    enum {
-        EXT_JPG = MULTICHAR_CONSTANT_L('.','j','p','g'),
-        EXT_PNG = MULTICHAR_CONSTANT_L('.','p','n','g'),
-        EXT_HTM = MULTICHAR_CONSTANT_L('.','h','t','m'),
-        EXT_CSS = MULTICHAR_CONSTANT_L('.','c','s','s'),
-        EXT_TXT = MULTICHAR_CONSTANT_L('.','t','x','t'),
-        EXT_JS  = MULTICHAR_CONSTANT_L('.','j','s',0x20),
-    };
-
     STRING_SWITCH_L(last_dot) {
-    case EXT_CSS:
-        return "text/css";
-    case EXT_HTM:
-        return "text/html";
-    case EXT_JPG:
+    case MULTICHAR_CONSTANT_L('.','j','p','g'):
         return "image/jpeg";
-    case EXT_JS:
-        return "application/javascript";
-    case EXT_PNG:
+    case MULTICHAR_CONSTANT_L('.','p','n','g'):
         return "image/png";
-    case EXT_TXT:
+    case MULTICHAR_CONSTANT_L('.','h','t','m'):
+        return "text/html";
+    case MULTICHAR_CONSTANT_L('.','c','s','s'):
+        return "text/css";
+    case MULTICHAR_CONSTANT_L('.','t','x','t'):
         return "text/plain";
+    case MULTICHAR_CONSTANT_L('.','j','s',0x20):
+        return "application/javascript";
     }
 
     if (LIKELY(*last_dot)) {

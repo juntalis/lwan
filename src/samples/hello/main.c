@@ -1,6 +1,6 @@
 /*
  * lwan - simple web server
- * Copyright (c) 2012 Leandro A. F. Pereira <leandro@hardinfo.org>
+ * Copyright (c) 2018 Leandro A. F. Pereira <leandro@hardinfo.org>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -17,25 +17,33 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-#include_next <sys/socket.h>
+#include "lwan.h"
 
-#ifndef MISSING_SYS_SOCKET_H
-#define MISSING_SYS_SOCKET_H
+LWAN_HANDLER(hello_world)
+{
+    static const char message[] = "Hello, World!";
 
-#ifndef MSG_MORE
-# define MSG_MORE 0
-#endif
+    response->mime_type = "text/plain";
+    lwan_strbuf_set_static(response->buffer, message, sizeof(message) - 1);
 
-#ifndef SOCK_CLOEXEC
-# define SOCK_CLOEXEC 0
-#endif
+    return HTTP_OK;
+}
 
-#ifndef SOCK_NONBLOCK
-# define SOCK_NONBLOCK 00004000
-#endif
+int
+main(void)
+{
+    const struct lwan_url_map default_map[] = {
+        { .prefix = "/", .handler = LWAN_HANDLER_REF(hello_world) },
+        { .prefix = NULL }
+    };
+    struct lwan l;
 
-#ifndef HAVE_ACCEPT4
-int accept4(int sock, struct sockaddr *addr, socklen_t *addrlen, int flags);
-#endif
+    lwan_init(&l);
 
-#endif /* MISSING_SYS_SOCKET_H */
+    lwan_set_url_map(&l, default_map);
+    lwan_main_loop(&l);
+
+    lwan_shutdown(&l);
+
+    return 0;
+}

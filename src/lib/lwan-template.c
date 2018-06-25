@@ -862,10 +862,14 @@ lwan_append_double_to_strbuf(struct lwan_strbuf *buf, void *ptr)
     lwan_strbuf_append_printf(buf, "%f", *(double *)ptr);
 }
 
-bool
-lwan_tpl_double_is_empty(void *ptr)
+bool lwan_tpl_double_is_empty(void *ptr)
 {
+#if defined(HAVE_BUILTIN_FPCLASSIFY)
+    return __builtin_fpclassify(FP_NAN, FP_INFINITE, FP_NORMAL, FP_SUBNORMAL,
+                                FP_ZERO, *(double *)ptr);
+#else
     return fpclassify(*(double *)ptr) == FP_ZERO;
+#endif
 }
 
 void
@@ -1430,8 +1434,7 @@ finalize:
 struct lwan_strbuf *
 lwan_tpl_apply_with_buffer(struct lwan_tpl *tpl, struct lwan_strbuf *buf, void *variables)
 {
-    if (UNLIKELY(!lwan_strbuf_reset(buf)))
-        return NULL;
+    lwan_strbuf_reset(buf);
 
     if (UNLIKELY(!lwan_strbuf_grow_to(buf, tpl->minimum_size)))
         return NULL;

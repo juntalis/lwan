@@ -126,10 +126,11 @@ static inline unsigned int hash_crc32(const void *keyptr)
         memcpy(&data, key, sizeof(data));
         hash = __builtin_ia32_crc32hi(hash, data);
         key += sizeof(uint16_t);
-        len--;
     }
-    if (*key)
-        hash = __builtin_ia32_crc32qi(hash, (unsigned char)*key);
+    /* Last byte might be the terminating NUL or the last character.
+     * For a hash, this doesn't matter, and shaves off a branch.
+     */
+    hash = __builtin_ia32_crc32qi(hash, (unsigned char)*key);
 
     return hash;
 }
@@ -225,11 +226,18 @@ static struct hash_entry *hash_add_entry(struct hash *hash, const void *key)
     struct hash_entry *entry, *entry_end;
 
     if (bucket->used + 1 >= bucket->total) {
-        unsigned int new_total = bucket->total + STEPS;
-        struct hash_entry *tmp =
-            reallocarray(bucket->entries, new_total, sizeof(*tmp));
+        unsigned int new_total;
+        struct hash_entry *tmp;
+
+        if (__builtin_add_overflow(bucket->total, STEPS, &new_total)) {
+            errno = EOVERFLOW;
+            return NULL;
+        }
+
+        tmp = reallocarray(bucket->entries, new_total, sizeof(*tmp));
         if (tmp == NULL)
             return NULL;
+
         bucket->entries = tmp;
         bucket->total = new_total;
     }

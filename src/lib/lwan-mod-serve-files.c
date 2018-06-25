@@ -815,7 +815,7 @@ static size_t prepare_headers(struct lwan_request *request,
                                              additional_headers);
 }
 
-static ALWAYS_INLINE enum lwan_http_status
+static enum lwan_http_status
 compute_range(struct lwan_request *request, off_t *from, off_t *to, off_t size)
 {
     off_t f, t;
@@ -823,44 +823,32 @@ compute_range(struct lwan_request *request, off_t *from, off_t *to, off_t size)
     f = request->header.range.from;
     t = request->header.range.to;
 
-    /*
-     * No Range: header present: both t and f are -1
-     */
+    /* No Range: header present: both t and f are -1 */
     if (LIKELY(t <= 0 && f <= 0)) {
         *from = 0;
         *to = size;
+
         return HTTP_OK;
     }
 
-    /*
-     * To goes beyond from or To and From are the same: this is unsatisfiable.
-     */
-    if (UNLIKELY(t >= f))
+    /* To must be greater than From; it doesn't make any sense to be
+     * equal, either. */
+    if (UNLIKELY(f >= t && t >= 0))
         return HTTP_RANGE_UNSATISFIABLE;
 
-    /*
-     * Range goes beyond the size of the file
-     */
+    /* Range goes beyond the size of the file */
     if (UNLIKELY(f >= size || t >= size))
         return HTTP_RANGE_UNSATISFIABLE;
 
-    /*
-     * t < 0 means ranges from f to the file size
-     */
-    if (t < 0)
-        t = size - f;
-    else
-        t -= f;
-
-    /*
-     * If for some reason the previous calculations yields something
-     * less than zero, the range is unsatisfiable.
-     */
-    if (UNLIKELY(t <= 0))
-        return HTTP_RANGE_UNSATISFIABLE;
+    /* t < 0: ranges from f to the file size */
+    if (t < 0) {
+	*to = size;
+    } else {
+        if (UNLIKELY(__builtin_sub_overflow(t, f, to)))
+            return HTTP_RANGE_UNSATISFIABLE;
+    }
 
     *from = f;
-    *to = t;
 
     return HTTP_PARTIAL_CONTENT;
 }
@@ -930,11 +918,11 @@ static enum lwan_http_status sendfile_serve(struct lwan_request *request,
 static enum lwan_http_status serve_buffer(struct lwan_request *request,
                                           struct file_cache_entry *fce,
                                           const char *compression_type,
-                                          const void *contents, size_t size)
+                                          const void *contents, size_t size,
+                                          enum lwan_http_status return_status)
 {
     char headers[DEFAULT_BUFFER_SIZE];
     size_t header_len;
-    enum lwan_http_status return_status = HTTP_OK;
 
     if (client_has_fresh_content(request, fce->last_modified.integer))
         return_status = HTTP_NOT_MODIFIED;
@@ -967,18 +955,33 @@ static enum lwan_http_status mmap_serve(struct lwan_request *request,
     void *contents;
     size_t size;
     const char *compressed;
+    enum lwan_http_status status;
 
     if (md->compressed.size && (request->flags & REQUEST_ACCEPT_DEFLATE)) {
         contents = md->compressed.contents;
         size = md->compressed.size;
         compressed = compression_deflate;
+
+        status = HTTP_OK;
     } else {
-        contents = md->uncompressed.contents;
-        size = md->uncompressed.size;
-        compressed = compression_none;
+        off_t from, to;
+
+        status =
+            compute_range(request, &from, &to, (off_t)md->uncompressed.size);
+        switch (status) {
+        case HTTP_PARTIAL_CONTENT:
+        case HTTP_OK:
+            contents = (char *)md->uncompressed.contents + from;
+            size = (size_t)(to - from);
+            compressed = compression_none;
+            break;
+
+        default:
+            return status;
+        }
     }
 
-    return serve_buffer(request, fce, compressed, contents, size);
+    return serve_buffer(request, fce, compressed, contents, size, status);
 }
 
 static enum lwan_http_status dirlist_serve(struct lwan_request *request,
@@ -1010,7 +1013,7 @@ static enum lwan_http_status dirlist_serve(struct lwan_request *request,
         return HTTP_NOT_FOUND;
     }
 
-    return serve_buffer(request, fce, compression_none, contents, size);
+    return serve_buffer(request, fce, compression_none, contents, size, HTTP_OK);
 }
 
 static enum lwan_http_status redir_serve(struct lwan_request *request,

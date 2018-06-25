@@ -136,7 +136,7 @@ min(const int a, const int b)
     return a < b ? a : b;
 }
 
-static int
+__attribute__((noreturn)) static int
 process_request_coro(struct coro *coro, void *data)
 {
     /* NOTE: This function should not return; coro_yield should be used
@@ -162,10 +162,8 @@ process_request_coro(struct coro *coro, void *data)
     }
     coro_defer(coro, CORO_DEFER(lwan_strbuf_free), &strbuf);
 
-    if (lwan->config.proxy_protocol)
-        flags |= REQUEST_ALLOW_PROXY_REQS;
-    if (lwan->config.allow_cors)
-        flags |= REQUEST_ALLOW_CORS;
+    flags |= lwan->config.proxy_protocol << REQUEST_ALLOW_PROXY_REQS_SHIFT |
+             lwan->config.allow_cors << REQUEST_ALLOW_CORS_SHIFT;
 
     while (true) {
         struct lwan_request request = {
@@ -186,11 +184,7 @@ process_request_coro(struct coro *coro, void *data)
 
         coro_yield(coro, CONN_CORO_MAY_RESUME);
 
-        if (UNLIKELY(!lwan_strbuf_reset(&strbuf))) {
-            coro_yield(coro, CONN_CORO_ABORT);
-            __builtin_unreachable();
-        }
-
+        lwan_strbuf_reset(&strbuf);
         flags = request.flags & flags_filter;
     }
 }

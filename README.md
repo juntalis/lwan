@@ -6,6 +6,16 @@ platforms.
 
 The [project web site](https://lwan.ws/) contains more details.
 
+Build status
+------------
+
+| OS      | Arch   | Release | Debug | Static Analysis | Tests |
+|---------|--------|---------|-------|-----------------|------------|
+| Linux   | x86_64 | ![release](https://shield.lwan.ws/img/gycKbr/release "Release")  | ![debug](https://shield.lwan.ws/img/gycKbr/debug "Debug")     | ![static-analysis](https://shield.lwan.ws/img/gycKbr/clang-analyze "Static Analysis") ![coverity](https://scan.coverity.com/projects/375/badge.svg) [Report history](https://buildbot.lwan.ws/sa/) | ![tests](https://shield.lwan.ws/img/gycKbr/unit-tests "Test")          |
+| Linux   | armv7  | ![release-arm](https://shield.lwan.ws/img/gycKbr/release-arm "Release")  | ![debug-arm](https://shield.lwan.ws/img/gycKbr/debug-arm "Debug")     |        |           |
+| FreeBSD | x86_64 | ![freebsd-release](https://shield.lwan.ws/img/gycKbr/release-freebsd "Release FreeBSD") | ![freebsd-debug](https://shield.lwan.ws/img/gycKbr/debug-freebsd "Debug FreeBSD")     |                |           |
+| macOS   | x86_64 | ![osx-release](https://shield.lwan.ws/img/gycKbr/release-sierra "Release macOS")       | ![osx-debug](https://shield.lwan.ws/img/gycKbr/debug-sierra "Debug macOS")     |               |          |
+
 Building
 --------
 
@@ -205,7 +215,11 @@ Some other distribution channels were made available as well:
 * A `Dockerfile` is maintained by [@jaxgeller](https://github.com/jaxgeller), and is [available from the Docker registry](https://hub.docker.com/r/jaxgeller/lwan/).
 * A buildpack for Heroku is maintained by [@bherrera](https://github.com/bherrera), and is [available from its repo](https://github.com/bherrera/heroku-buildpack-lwan).
 * Lwan is also available as a package in [Biicode](http://docs.biicode.com/c++/examples/lwan.html).
-* Packages for [Arch Linux](https://aur.archlinux.org/packages/lwan-git/), [Ubuntu](https://launchpad.net/lwan-unofficial), and [Alpine Linux](https://pkgs.alpinelinux.org/package/edge/testing/x86_64/lwan) are available.
+* It's also available in some GNU/Linux distributions:
+    * [Arch Linux](https://aur.archlinux.org/packages/lwan-git/)
+    * [Ubuntu](https://launchpad.net/lwan-unofficial)
+    * [Alpine Linux](https://pkgs.alpinelinux.org/package/edge/testing/x86_64/lwan)
+    * [NixOS](https://nixos.org/nixos/packages.html#lwan)
 
 Lwan has been also used as a benchmark:
 
@@ -225,18 +239,46 @@ Some talks mentioning Lwan:
 * This [talk about Iron](https://michaelsproul.github.io/iron-talk/), a framework for Rust, mentions Lwan as an *insane C thing*.
 * [University seminar presentation](https://github.com/cu-data-engineering-s15/syllabus/blob/master/student_lectures/LWAN.pdf) about Lwan.
 * This [presentation about Sailor web framework](http://www.slideshare.net/EtieneDalcol/web-development-with-lua-bulgaria-web-summit) mentions Lwan.
+* [Performance and Scale @ Istio Service Mesh](https://www.youtube.com/watch?v=G4F5aRFEXnU), at around 7:30min, presented at KubeCon Europe 2018, mentions that Lwan is used on the server side for testing due to its performance and robustness.
 
 Not really third-party, but alas:
 
 * The [author's blog](http://tia.mat.br).
 * The [project's webpage](http://lwan.ws).
 
-Build status
-------------
+Lwan quotes
+-----------
 
-| OS      | Arch   | Release | Debug | Static Analysis | Tests |
-|---------|--------|---------|-------|-----------------|------------|
-| Linux   | x86_64 | ![release](https://shield.lwan.ws/img/gycKbr/release "Release")  | ![debug](https://shield.lwan.ws/img/gycKbr/debug "Debug")     | ![static-analysis](https://shield.lwan.ws/img/gycKbr/clang-analyze "Static Analysis") ![coverity](https://scan.coverity.com/projects/375/badge.svg) [Report history](https://buildbot.lwan.ws/sa/) | ![tests](https://shield.lwan.ws/img/gycKbr/unit-tests "Test")          |
-| Linux   | armv7  | ![release-arm](https://shield.lwan.ws/img/gycKbr/release-arm "Release")  | ![debug-arm](https://shield.lwan.ws/img/gycKbr/debug-arm "Debug")     |        |           |
-| FreeBSD | x86_64 | ![freebsd-release](https://shield.lwan.ws/img/gycKbr/release-freebsd "Release FreeBSD") | ![freebsd-debug](https://shield.lwan.ws/img/gycKbr/debug-freebsd "Debug FreeBSD")     |                |           |
-| macOS   | x86_64 | ![osx-release](https://shield.lwan.ws/img/gycKbr/release-sierra "Release macOS")       | ![osx-debug](https://shield.lwan.ws/img/gycKbr/debug-sierra "Debug macOS")     |               |          |
+These are some of the quotes found in the wild about Lwan.  They're presented
+in no particular order.  Contributions are appreciated:
+
+> "I read lwan's source code. Especially, the part of using coroutine was
+> very impressive and it was more interesting than a good novel.  Thank you
+> for that." --
+> [@patagonia](https://twitter.com/hakman314/status/996617563470680064)
+
+> "For the server side, we're using Lwan, which can handle 100k+ reqs/s.
+> It's supposed to be super robust and it's working well for us." --
+> [@fawadkhaliq](https://twitter.com/fawadkhaliq)
+
+> "Insane C thing" -- [Michael
+> Sproul](https://michaelsproul.github.io/iron-talk/)
+
+> "I've never had a chance to thank you for Lwan.  It inspired me a lot to
+> develop [Zewo](https://github.com/Zewo/Zero)" --
+> [@paulofariarl](https://twitter.com/paulofariarl/status/707926806373003265)
+
+> "Let me say that lwan is a thing of beauty.  I got sucked into reading the
+> source code for pure entertainment, it's so good.  *high five*" --
+> [@kwilczynski](https://twitter.com/kwilczynski/status/692881117003644929)
+
+> "Nice work with Lwan! I haven't looked _that_ carefully yet but so far I
+> like what I saw.  You definitely have the right ideas." --
+> [@thinkingfish](https://twitter.com/thinkingfish/status/521574267612196864)
+
+> "Lwan is a work of art. Every time I read through it, I am almost always
+> awe-struck." --
+> [@neurodrone](https://twitter.com/neurodrone/status/359296080283840513)
+
+> "For Round 10, Lwan has taken the crown" --
+> [TechEmpower](https://www.techempower.com/blog/2015/04/21/framework-benchmarks-round-10/)

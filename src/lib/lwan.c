@@ -122,6 +122,9 @@ static struct lwan_url_map *add_url_map(struct lwan_trie *t, const char *prefix,
     memcpy(copy, map, sizeof(*copy));
 
     copy->prefix = strdup(prefix ? prefix : copy->prefix);
+    if (!copy->prefix)
+        lwan_status_critical_perror("Could not copy URL prefix");
+
     copy->prefix_len = strlen(copy->prefix);
     lwan_trie_add(t, copy->prefix, copy);
 
@@ -413,7 +416,7 @@ static bool setup_from_config(struct lwan *lwan, const char *path)
                 long n_threads =
                     parse_long(line.value, default_config.n_threads);
                 if (n_threads < 0)
-                    config_error(conf, "Invalid number of threads: %d",
+                    config_error(conf, "Invalid number of threads: %ld",
                                  n_threads);
                 lwan->config.n_threads = (unsigned short int)n_threads;
             } else if (streq(line.key, "max_post_data_size")) {
@@ -421,7 +424,7 @@ static bool setup_from_config(struct lwan *lwan, const char *path)
                     line.value, (long)default_config.max_post_data_size);
                 if (max_post_data_size < 0)
                     config_error(conf, "Negative maximum post data size");
-                else if (max_post_data_size > 128 * 1 << 20)
+                else if (max_post_data_size > 128 * (1 << 20))
                     config_error(conf,
                                  "Maximum post data can't be over 128MiB");
                 lwan->config.max_post_data_size = (size_t)max_post_data_size;
@@ -524,7 +527,7 @@ void lwan_init_with_config(struct lwan *l, const struct lwan_config *config)
     memset(l, 0, sizeof(*l));
     memcpy(&l->config, config, sizeof(*config));
     l->config.listener = dup_or_null(l->config.listener);
-    l->config.config_file_path = dup_or_null(l->config.listener);
+    l->config.config_file_path = dup_or_null(l->config.config_file_path);
 
     /* Initialize status first, as it is used by other things during
      * their initialization. */
@@ -537,16 +540,15 @@ void lwan_init_with_config(struct lwan *l, const struct lwan_config *config)
     lwan_tables_init();
 
     /* Load the configuration file. */
-    if (config == &default_config || config->config_file_path) {
-        if (!setup_from_config(l, config->config_file_path)) {
-            if (config->config_file_path) {
-                lwan_status_critical("Could not read config file: %s",
-                                     config->config_file_path);
-            } else {
-                lwan_status_critical("Could not read config file");
-            }
+    if (!setup_from_config(l, config->config_file_path)) {
+        if (config->config_file_path) {
+            lwan_status_critical("Could not read config file: %s",
+                                 config->config_file_path);
+        } else {
+            lwan_status_critical("Could not read config file");
         }
-
+    }
+    if (config->config_file_path || config == &default_config) {
         /* `quiet` key might have changed value. */
         lwan_status_init(l);
     }
